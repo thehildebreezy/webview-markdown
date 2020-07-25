@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<script>
+
+var Event = {
+    NONE : 0,
+    BOLD : 1,
+    ITALIC : 2,
+    UNDERLINE: 3
+}
+
+
+function setup(){
+
+    var body = document.body;
+
+    // set up
+    document.execCommand('defaultParagraphSeparator', false, 'p');
+
+    // add the observer to watch for updates
+    // Options for the observer (which mutations to observe)
+    const config = { characterData: true, childList: true, subtree: true };
+
+    // Callback function to execute when mutations are observed
+    const callback = function(mutationsList, observer) {
+        // Use traditional 'for loops' for IE 11
+        for(let mutation of mutationsList) {
+            if (mutation.type === 'childList') {
+                console.log('A child node has been added or removed.');
+            }
+            else if (mutation.type === 'attributes') {
+                console.log('The ' + mutation.attributeName + ' attribute was modified.');
+            }
+        }
+    };
+
+    // Create an observer instance linked to the callback function
+    const observer = new MutationObserver(callback);
+
+    // Start observing the target node for configured mutations
+    observer.observe(body, config);
+
+
+    // add event listeners to the document to capture keypresses
+    document.addEventListener('keydown', function( e ){
+        
+        var ev = captureEditorKeyEvent( e );
+        
+        switch( ev ){
+        case Event.BOLD:
+            selectionBold();
+            break;
+        case Event.ITALIC:
+            selectionItalic();
+            break
+        default:
+            //do nothing
+        }
+
+    },false)
+
+
+
+    // set focus to the right place
+    setInitFocus();
+}
+
+function selectionBold(){
+    wrapIt("**");
+}
+
+function selectionItalic(){
+    wrapIt("*")
+}
+
+function wrapIt( text ){
+    var sel = window.getSelection()
+    var len = sel.getRangeAt(0).toString().length
+    var range1 = sel.getRangeAt(0).cloneRange()
+    var range2 = sel.getRangeAt(0).cloneRange()
+    range1.collapse(true)
+    range2.collapse(false)
+    range1.insertNode(document.createTextNode(text))
+    range2.insertNode(document.createTextNode(text))
+    sel.getRangeAt(0).collapse(true)
+    for(var i=0;i<text.length;i++){
+        sel.modify("move","right","character")
+    }
+    for(var i=0;i<len;i++){
+        sel.modify("extend","right","character")
+    }
+}
+
+
+/**
+ */
+function captureEditorKeyEvent( e ){
+    var ev = Event.NONE;
+
+    // CTRL+B = Bold
+    if (e.ctrlKey && e.which == 66){
+        ev = Event.BOLD;
+    // CTRL+I = Italic
+    } else if( e.ctrlKey && e.which == 73){
+        ev = Event.ITALIC;
+    } else if( e.ctrlKey && e.which == 85){
+        ev = Event.UNDERLINE;
+    }
+
+    // stop default eaction if we have an editor event
+    if( ev != Event.NONE ){
+        e.preventDefault();
+    }
+
+    return ev;
+}
+
+
+
+function setInitFocus(){
+    var p = document.getElementsByTagName('p')[0],
+    s = window.getSelection(),
+    r = document.createRange();
+    p.innerHTML = '\u00a0';
+    r.selectNodeContents(p);
+    s.removeAllRanges();
+    s.addRange(r);
+    document.execCommand('delete', false, null);
+}
+
+</script>
+</head>
+<body contenteditable="true" onload="setup();"><p></p></body>
+</html>
