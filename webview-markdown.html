@@ -1,136 +1,783 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
+	<meta charset="utf-8">
+	<title>Markdown</title>
 
-<script>
+	<style>
+	body {
+		font-size: 1em;
+		padding: 0 40px;
+	}
+	.blockquote {
+		border-left: 4px solid #cfcfcf;
+		margin: 0;
+		padding-left: 1em;
+		margin-left: 1em;
+	}
+	.ol, .ul {
+		text-indent: -12px;
+		margin-left: 24px;
+		margin-bottom: .5em;
+	}
 
-var Event = {
-    NONE : 0,
-    BOLD : 1,
-    ITALIC : 2,
-    UNDERLINE: 3
-}
+	.ol.first-in-series, 
+	.ul.first-in-series, 
+	.blockquote.first-in-series {
+		margin-top: 1em;
+	}
 
+	code {
+		background: #efefef;
+		border: 1px solid #cfcfcf;
+	}
+	.code-block {
+		background: #efefef;
+		border: 1px solid #cfcfcf;
+		border-bottom: 0;
+		border-top: 0;
+		font-family: monospace;
+	}
+	.code-block.last-in-series {
+		border: 1px solid #cfcfcf;
+		border-top: 0;
+		padding-bottom: .5em;
+	}
+	.code-block.first-in-series {
+		border: 1px solid #cfcfcf;
+		border-bottom: 0;
+		padding-top: .5em;
+	}
+	.code-block.last-in-series.first-in-series {
+		border: 1px solid #cfcfcf;
+	}
 
-function setup(){
+	.hr {
+		text-align: center;
+		border-bottom: 3px solid #cfcfcf;
+	}
+	
 
-    var body = document.body;
+	</style>
 
-    // set up
-    document.execCommand('defaultParagraphSeparator', false, 'p');
+	<script>
 
-    // add the observer to watch for updates
-    // Options for the observer (which mutations to observe)
-    const config = { characterData: true, childList: true, subtree: true };
+	// an enum for events
+	var Event = {
+		NONE :  0,
+		SAVE :  1,
+		PASTE:  2,
+		BOLD :  3,
+		ITALIC: 4
+	};
 
-    // Callback function to execute when mutations are observed
-    const callback = function(mutationsList, observer) {
-        // Use traditional 'for loops' for IE 11
-        for(let mutation of mutationsList) {
-            if (mutation.type === 'childList') {
-                console.log('A child node has been added or removed.');
-            }
-            else if (mutation.type === 'attributes') {
-                console.log('The ' + mutation.attributeName + ' attribute was modified.');
-            }
-        }
-    };
-
-    // Create an observer instance linked to the callback function
-    const observer = new MutationObserver(callback);
-
-    // Start observing the target node for configured mutations
-    observer.observe(body, config);
-
-
-    // add event listeners to the document to capture keypresses
-    document.addEventListener('keydown', function( e ){
-        
-        var ev = captureEditorKeyEvent( e );
-        
-        switch( ev ){
-        case Event.BOLD:
-            selectionBold();
-            break;
-        case Event.ITALIC:
-            selectionItalic();
-            break
-        default:
-            //do nothing
-        }
-
-    },false)
-
-
-
-    // set focus to the right place
-    setInitFocus();
-}
-
-function selectionBold(){
-    wrapIt("**");
-}
-
-function selectionItalic(){
-    wrapIt("*")
-}
-
-function wrapIt( text ){
-    var sel = window.getSelection()
-    var len = sel.getRangeAt(0).toString().length
-    var range1 = sel.getRangeAt(0).cloneRange()
-    var range2 = sel.getRangeAt(0).cloneRange()
-    range1.collapse(true)
-    range2.collapse(false)
-    range1.insertNode(document.createTextNode(text))
-    range2.insertNode(document.createTextNode(text))
-    sel.getRangeAt(0).collapse(true)
-    for(var i=0;i<text.length;i++){
-        sel.modify("move","right","character")
-    }
-    for(var i=0;i<len;i++){
-        sel.modify("extend","right","character")
-    }
-}
+	var Store = {
+		forceHTMLFormat: false
+	}
 
 
-/**
- */
-function captureEditorKeyEvent( e ){
-    var ev = Event.NONE;
+	function docReady(fn) {
+	    // see if DOM is already available
+	    if (document.readyState === "complete" || document.readyState === "interactive") {
+	        // call on next available tick
+	        setTimeout(fn, 1);
+	    } else {
+	        document.addEventListener("DOMContentLoaded", fn);
+    	    }
+	}
 
-    // CTRL+B = Bold
-    if (e.ctrlKey && e.which == 66){
-        ev = Event.BOLD;
-    // CTRL+I = Italic
-    } else if( e.ctrlKey && e.which == 73){
-        ev = Event.ITALIC;
-    } else if( e.ctrlKey && e.which == 85){
-        ev = Event.UNDERLINE;
-    }
+	function sendSave(){
+		var txt = document.body.textContent;
+		var win = window.open('')
+		win.document.write('<html><body><textarea></textarea></body></html>')
+		win.document.body.childNodes[0].value = txt
+	}
 
-    // stop default eaction if we have an editor event
-    if( ev != Event.NONE ){
-        e.preventDefault();
-    }
+	function saveSelectionInformation( node ){
+		var sel = window.getSelection()
+		var range = sel.getRangeAt(0).cloneRange()
+		// get selection length
+		var totalLen = range.toString().length;
+		range.setStart( node, 0 );
+		var endPos = range.toString().length;
+		return {start:(endPos - totalLen+1),len:totalLen-1}
+	}
 
-    return ev;
-}
+	function restoreSelectionInformation( node, offset ){
+
+		len = offset.start
+
+		const NODE_TYPE = NodeFilter.SHOW_TEXT
+		var treeWalker = document.createTreeWalker(node, NODE_TYPE, function next(elem) {
+        		if(len > elem.textContent.length){
+            			len -= elem.textContent.length;
+            			return NodeFilter.FILTER_REJECT
+        		}
+        		return NodeFilter.FILTER_ACCEPT;
+    		});
+		var c = treeWalker.nextNode();
+
+		var ele = c ? c : node
+		var pos = len
+
+		var sel = window.getSelection()
+		sel.removeAllRanges()
+		var range = new Range()
+		range.setStart(ele,pos)
+		range.setEnd(ele,pos+offset.len)
+		sel.addRange(range)
+	}
+
+	function saveCaretPosition( node ){
+		var sel = window.getSelection()
+		var range = sel.getRangeAt(0)
+		range.setStart( node, 0 );
+		return range.toString().length;
+	}
+
+	function restoreCaretPosition( node, len ){
+		
+		const NODE_TYPE = NodeFilter.SHOW_TEXT
+		var treeWalker = document.createTreeWalker(node, NODE_TYPE, function next(elem) {
+        		if(len > elem.textContent.length){
+            			len -= elem.textContent.length;
+            			return NodeFilter.FILTER_REJECT
+        		}
+        		return NodeFilter.FILTER_ACCEPT;
+    		});
+		var c = treeWalker.nextNode();
+
+		var ele = c ? c : node
+		var pos = len
+
+		var sel = window.getSelection()
+		sel.removeAllRanges()
+		var range = new Range()
+		range.setStart(ele, pos)
+		sel.addRange(range)
+	}
+
+	function firstBlockParent( node ){
+		if( node.style && getComputedStyle(node,null).display === 'block'
+			|| !node.parentElement
+		){
+			return node
+		}
+		return firstBlockParent( node.parentElement )
+	}
+
+	function anchorBloc(){
+		return firstBlockParent( window.getSelection().baseNode )
+	}
+
+	function getExpression( exp ){
+		if( exp == '**' || exp == '__' ){
+			return 'strong'
+		} else if( exp == '*' || exp == '_' ){
+			return 'em'
+		} else if( exp == '`' ){
+			return 'code'
+		}
+		return null
+	}
+
+	function isExpression( char ){
+		if( getExpression(char) != null ){
+			return true
+		}
+		return false
+	}
+
+	function isExpressionKey( keycode ){
+		if( 	keycode === 106 || // *
+			keycode === 46 ||  // Delete
+			keycode === 8 ||   // Backspace
+			keycode === 189 || // _
+			keycode === 192    // `
+		){
+			return true;
+		}
+		return false;
+	}
+
+	function parseHTML( str ){
+		var tagQueue = []
+		var i = 0;
+		var postHTML = ""
+		for(;i<str.length;i++){
+			var exp = getExpression(str.charAt(i))
+			if( !exp ){
+				postHTML += str.charAt(i)
+				continue
+			}
+			
+			// first test if this expression is next in line
+			// for closing
+			if( tagQueue.length > 0 && tagQueue[tagQueue.length-1].tag == exp ){
+				
+				var tag = tagQueue.pop()
+				postHTML += str.charAt(i) + "</" + tag.tag + ">"
+				continue
+			}
+
+			var saveTag = {tag:exp,txt:str.charAt(i)}
+
+			// found first possible expression
+			// test for extended expression
+			// ab**cd** = 8
+			if( str.length > i+1 ){
+				var txt = str.substring(i,i+2)
+				var ext = getExpression(txt)
+				if( ext ){
+					exp = ext
+				}
+				i++ // need an extra increment
+				saveTag.tag = exp
+				saveTag.txt = txt
+			}
+
+			// test for closing again
+			if( tagQueue.length > 0 && tagQueue[tagQueue.length-1].tag == exp ){
+				
+				var tag = tagQueue.pop()
+				postHTML += tag.txt + "</" + tag.tag + ">"
+				continue
+			}
+
+			// otherwise open a new tag
+			tagQueue[tagQueue.length] = saveTag
+			postHTML += "<"+exp+">"+saveTag.txt
+
+		}
+		return postHTML
+	}
+
+	function formatHTML( node ){
+		if( !node || node.innerText.length <= 1 ){
+			return null
+		}
+		var txt = node.innerText
+		var i=1;
+		for(i=1;i<txt.length; i++){
+			if( isExpression(txt.charAt(i)) ){
+				var preHTML = txt.substring(0, i)
+				var postHTML = parseHTML( txt.substring(i,txt.length) ) 
+				return preHTML + postHTML
+			}
+		}
+		return null
+	}
+
+	function clearClasses( node ){
+		node.className = ''
+	}
+
+	function formatBlock( tag, node ){
+		clearClasses( node )
+		
+		if( Store.forceHTMLFormat ){
+			var html = formatHTML( node )
+			if( html != null ){
+				var len = -1
+				var selLen = window.getSelection().getRangeAt(0).toString().length
+				if( node === anchorBloc() ){
+					len = saveCaretPosition(node)
+					//offset = saveSelectionInformation(node)
+				}
+
+				node.innerHTML = html
+			
+				if( len >= 0 ){
+					//restoreSelectionInformation(node, offset)
+					restoreCaretPosition(node, len)
+
+					var sel = window.getSelection()
+					for(var i=0; i<selLen; i++){
+						sel.modify("extend","left","character")
+					}
+				}
+			}
+		}
 
 
+		if( node.tagName === tag.toUpperCase() ){
+			return node
+		}
 
-function setInitFocus(){
-    var p = document.getElementsByTagName('p')[0],
-    s = window.getSelection(),
-    r = document.createRange();
-    p.innerHTML = '\u00a0';
-    r.selectNodeContents(p);
-    s.removeAllRanges();
-    s.addRange(r);
-    document.execCommand('delete', false, null);
-}
 
-</script>
+		if( node === anchorBloc() ){
+			document.execCommand("formatBlock",false,tag)
+			return anchorBloc()
+		}
+
+		var replace = document.createElement(tag)
+		replace.innerHTML = node.innerHTML
+		node.parentNode.replaceChild(replace, node)
+		node.remove()
+		return replace
+	}
+
+	function addClass( node, cl ){
+		node.classList.add(cl)
+	}
+
+	function removeClass( node, cl ){
+		node.classList.remove(cl)
+	}
+
+	function addClassAndPlaceInSeries( node, cl ){
+		addClass( node, cl )
+		// detect next
+		var nxt = next( node )
+		var prev = previous( node )
+		if ( 	!nxt ||
+			!nxt.classList.contains(cl) ){
+			addClass( node, "last-in-series" )
+		}
+		if ( 	!prev ||
+			!prev.classList.contains(cl) ){
+			addClass( node, "first-in-series" )
+
+		// correct for sequential scan on first load
+		} else if( prev && prev.classList.contains("last-in-series") ){
+			removeClass( prev, "last-in-series")
+		}
+	}
+
+	function formatHorizontalRule( node ){
+		var fmt = formatBlock("p",node)
+		addClassAndPlaceInSeries( fmt, 'hr' )
+	}
+
+	function formatOrderedListItem( node ){
+		var fmt = formatBlock("div",node)
+		addClassAndPlaceInSeries( fmt, 'ol' )
+	}
+
+	function formatCodeBlock( node ){
+		// adjust lead if needed
+		var str = node.textContent.substring(0,4)
+		if( str == "\x20\x20\x20\x20" ){
+			node.innerHTML = "\xa0\x20\xa0\xa0" + node.textContent.substring(4,node.textContent.length)
+		}
+
+		var savedFormat = Store.forceHTMLFormat
+		Store.forceHTMLFormat = false
+		var fmt = formatBlock("div",node)
+		Store.forceHTMLFormat = savedFormat
+		addClassAndPlaceInSeries( fmt, 'code-block' )
+	}
+
+	function formatUnorderedListItem( node ){
+		var fmt = formatBlock("div",node)
+		addClassAndPlaceInSeries( fmt, 'ul' )
+	}
+
+	function formatBlockquote( node ){
+		var fmt = formatBlock("div",node)
+		addClassAndPlaceInSeries( fmt, 'blockquote' )
+	}
+
+	function isNumber( str ){
+		return !isNaN(str)
+	}
+
+	function olLineNumber( node ){
+		if( !node || node.innerText.length < 1 ) {
+			return -1
+		}
+		if( !isNumber(node.innerText.substring(0,1)) ){
+			return -1
+		}
+		var txt = node.innerText
+		var idx = txt.indexOf('.')
+		if( idx < 0 ) {
+			return -1
+		}
+		var num = txt.substring(0, idx)
+		if( isNumber( num ) ){
+			return parseInt(num)
+		}
+		return -1
+	}
+
+	function formatLine( node ){
+		if( node.nodeType == Node.TEXT_NODE ){
+			return
+		}
+		if( node.innerText ){
+			if( node.innerText.substring(0,6) == "######" ){
+ 				formatBlock("h6", node )
+			} else if( node.innerText.substring(0,5) == "#####" ){
+ 				formatBlock("h5", node )
+			} else if( node.innerText.substring(0,4) == "####" ){
+ 				formatBlock("h4", node )
+			} else if( node.innerText.substring(0,3) == "###" ){
+ 				formatBlock("h3", node )
+			} else if( node.innerText.substring(0,2) == "##" ){
+ 				formatBlock("h2", node )
+			} else if( node.innerText.substring(0,1) == "#" ){
+				formatBlock("h1", node )
+			} else if( node.innerText.substring(0,1) == ">" ){
+				formatBlockquote( node )
+			} else if ( 
+				node.innerText.substring(0,1) == "-" &&
+				node.innerText == "---"
+			){
+				formatHorizontalRule( node )
+			} else if( 
+				(node.innerText.substring(0,1) == "*" || 
+				 node.innerText.substring(0,1) == "-") &&
+				(node.innerText.substring(0,2) == "*\xa0" ||
+				node.innerText.substring(0,2) == "*\x20" ||
+				node.innerText.substring(0,2) == "-\xa0" ||
+				node.innerText.substring(0,2) == "-\x20")
+			){
+				formatUnorderedListItem( node )
+			} else if( olLineNumber( node ) > 0 ){
+				formatOrderedListItem( node )
+			} else if( 
+				(node.textContent.charCodeAt(0) == 160 ||
+				node.textContent.charCodeAt(0) == 32)
+				&&
+				(node.textContent.substring(0,4) == '\xa0\x20\xa0\xa0' ||
+				node.textContent.substring(0,4) == '\xa0\x20\xa0\x20' ||
+				node.textContent.substring(0,4) == '\xa0\xa0\xa0\xa0' ||
+				node.textContent.substring(0,4) == '\x20\x20\x20\x20')
+			){
+				formatCodeBlock( node )
+			
+			} else {
+				formatBlock("p",node)
+			}
+			return
+		}
+		formatBlock("p",node)
+	}
+
+	function isVis( el ){
+
+		if( el.nodeType == Node.TEXT_NODE ){
+			return false
+		}
+
+		var rect = el.getBoundingClientRect()
+		
+		return rect.top >= 0 && rect.bottom <= window.innerHeight
+	}
+
+	function formatVis(){
+
+		for(var i=0; i<document.body.childNodes.length; i++){
+			var el = document.body.childNodes[i]
+			if( !isVis( el ) ){
+				continue
+			}
+			formatLine( el )
+		}
+
+	}
+
+	function previous( node ) {
+		return node.previousElementSibling
+	}
+	function next( node ) {
+		return node.nextElementSibling
+	}
+
+	function moveToEnd(){
+	
+		var range = document.createRange()
+		range.selectNodeContents( anchorBloc() )
+		range.collapse(false)
+			
+		var sel = window.getSelection()
+		sel.removeAllRanges()
+		sel.addRange( range )
+	}
+
+	function chooseNext() {
+	
+		var anchor = window.getSelection().anchorNode
+		var prev = previous( anchor )
+
+
+		var prevLine = olLineNumber(prev)
+		if( prevLine >= 0 ){
+			var nextIdx = 1+prevLine
+			anchor.innerHTML = nextIdx+".\xa0"
+
+			formatLine( anchorBloc() )
+
+			moveToEnd()
+
+			return
+		}
+
+		if( prev == null ) return;
+
+		var txt = prev.innerText
+		if( txt.length < 1 ){
+			return;
+		}
+
+		var firstChar = txt.substring(0,1)
+		if( firstChar === '>' ){
+			anchor.innerHTML = ">\xa0"
+			moveToEnd()
+			formatLine( anchorBloc() )
+		} else if( (firstChar === '*' || firstChar === '-') &&
+			(txt.substring(0,2) == "*\x20" ||
+			txt.substring(0,2) == "*\xa0" ||
+			txt.substring(0,2) == "-\x20" ||
+			txt.substring(0,2) == "\xa0" )
+		){
+			anchor.innerHTML = firstChar+"\xa0"
+			formatLine( anchorBloc() )
+			moveToEnd()
+		} else if( (firstChar === '\xa0' || firstChar === '\x20' ) &&
+			(prev.textContent.substring(0,4) == '\xa0\x20\xa0\xa0' ||
+			prev.textContent.substring(0,4) == '\xa0\x20\xa0\x20' ||
+			prev.textContent.substring(0,4) == '\x20\x20\x20\x20' ||
+			prev.textContent.substring(0,4) == '\xa0\xa0\xa0\xa0')
+		){
+			anchor.innerHTML = "\xa0\x20\xa0\xa0"
+			formatLine( anchorBloc() )
+			moveToEnd()
+		}
+
+	}
+
+	function stripHTML( str ){
+		return str.replace(/(<([^>]+)>)/gi, "")
+	}
+
+
+	function deleteRange(start, end){
+		var nextNode = start
+		while( nextNode != end && nextNode != null ){
+			var savedNext = next( nextNode )
+			nextNode.remove()
+			nextNode = savedNext
+		}
+		end.remove()
+	}
+
+	function insertNodesAfter(injectList, prev){
+		if( injectList.length == 0 ){
+			return
+		}
+		var lastNode = prev
+		var i = 0
+		if( prev == null ){
+			document.body.prepend( injectList[0] )
+			lastNode = injectList[0]
+			i = 1
+		}
+		for(;i<injectList.length;i++){
+			insertAfter(injectList[i],lastNode)
+			lastNode = injectList[i]
+		}
+	}
+
+	function insertAfter(newNode, existingNode) {
+    		existingNode.parentNode.insertBefore(newNode, next(existingNode) );
+	}
+
+	function insertBefore( newNode, existingNode ){
+		existingNode.parentNode.insertBefore(newNode, existingNode)
+	}
+
+	function startup() {
+		var body = document.body
+		
+		
+ 
+		var p   = document.createElement("p")
+		body.appendChild(p)
+		var s = window.getSelection()
+	     	var r = document.createRange()
+		p.innerHTML = '\u00a0'
+		r.selectNodeContents(p)
+		s.removeAllRanges()
+		s.addRange(r)
+		document.execCommand('delete', false, null)
+
+		document.execCommand('defaultParagraphSeparator', false, 'p')
+
+
+		body.onpaste = (e)=>{
+
+			// we need to start by saving all data before and after
+			// the current selection in the respective nodes
+			var sel = window.getSelection()
+			var r   = sel.getRangeAt(0)
+
+			var start = firstBlockParent( r.startContainer )
+			var end = firstBlockParent( r.endContainer )
+
+            		var preCaretRange = r.cloneRange()
+            		preCaretRange.selectNodeContents(start)
+            		preCaretRange.setEnd(r.startContainer, r.startOffset)
+            		var preData = stripHTML(preCaretRange.toString())
+
+			var postCaretRange = r.cloneRange()
+			postCaretRange.selectNodeContents(end)
+            		postCaretRange.setStart(r.endContainer, r.endOffset)
+            		var postData = stripHTML(postCaretRange.toString())
+
+
+			e.clipboardData.items[0].getAsString(function(str){
+				
+				if( !str || str.length == 0 ){
+					return
+				}
+
+				var lines = str.split("\n")
+
+				var injectList = []
+
+				// the first line is special and will get injected
+				// in place
+				var newNode = document.createElement('p')
+				newNode.innerHTML = preData + stripHTML(lines[0])
+
+				injectList[0] = newNode
+				
+				// omit last line
+				for(var i=1; i<lines.length-1; i++){
+					var newNode = document.createElement('p')
+					newNode.innerHTML = stripHTML(lines[i])
+					injectList[i] = newNode
+				}
+
+				// similarly the last line will get appended with
+				// whatever remained
+				if( lines.length > 1 ){
+					var endNode = document.createElement('p')
+					endNode.innerHTML = stripHTML(lines[lines.length-1]) + postData
+					injectList[lines.length-1] = endNode
+				}
+
+				var prev = previous(start)
+				deleteRange(start, end)
+				insertNodesAfter(injectList, prev)
+
+				Store.forceHTMLFormat = true
+				formatVis()
+				Store.forceHTMLFormat = false
+			})
+
+			// stop standard paste
+			e.preventDefault()
+		}
+		
+		document.onscroll = (e) => {
+			Store.forceHTMLFormat = true
+			formatVis()
+			Store.forceHTMLFormat = false
+		}
+
+
+		// replace divs with ps
+		body.onkeyup = (e)=> {
+		    	e = e || window.event
+	        	if (e.keyCode === 13){
+				chooseNext()
+		    
+			}		
+			formatVis()
+			Store.forceHTMLFormat = false
+		}
+
+		// add an event listener
+		document.addEventListener("keydown",function(e){
+	
+			e = e || window.event
+			if( isExpressionKey( e.keyCode ) ){
+				Store.forceHTMLFormat = true
+			}
+
+			var ev = editorEvent( e );
+			//alert(ev);
+			switch ( ev ) {
+				case Event.BOLD:
+					wrapIt("**");
+					break;
+				case Event.ITALIC:
+					wrapIt("*");
+					break;
+				case Event.SAVE:
+					sendSave()
+					break
+				case Event.PASTE:
+					//alert("paste")
+					break
+				default:
+					//none
+			}
+			if( ev != Event.NONE ){
+				Store.forceHTMLFormat = true
+			}
+		}, false);
+
+		Store.forceHTMLFormat = true
+		formatVis()
+		Store.forceHTMLFormat = false
+	}
+
+	docReady(startup);
+	</script>
+
+	<script>
+		function editorEvent( e ){
+			var ev = Event.NONE;
+			if (e.ctrlKey && e.which == 66) {
+				ev = Event.BOLD;
+			} else if(e.ctrlKey && e.which == 73){
+				ev = Event.ITALIC;
+			} else if(e.ctrlKey && e.which == 83){
+				ev = Event.SAVE;
+			}/* else if(e.ctrlKey && e.which == 86){
+				ev = Event.PASTE;
+			}*/
+			if( ev != Event.NONE ){ 
+				e.preventDefault();
+			}
+			return ev;
+		}
+		
+		function wrapIt( wrapText ) {
+			var sel = window.getSelection();
+			var selectionLength = sel.getRangeAt(0).toString().length
+        		var range  = sel.getRangeAt(0)
+            		var range1 = range.cloneRange();
+            		var range2 = range.cloneRange();
+			range1.collapse(true);
+			range2.collapse(false);
+			range1.insertNode(document.createTextNode(wrapText));
+			range2.insertNode(document.createTextNode(wrapText));
+			range.collapse()
+			for(var i=0;i<selectionLength;i++){
+				sel.modify("extend","left","character")
+			}
+		}
+	</script>
 </head>
-<body contenteditable="true" onload="setup();"><p></p></body>
+<body contentEditable="true">
+<p># Show case</p>
+<p>A quick demo of the current features</p>
+<p>1. Headers</p>
+<p>2. Lists</p>
+<p>3. Blockquote</p>
+<p>* See</p>
+<p>* this</p>
+<p>* list</p>
+<p>> Wow</p>
+<p>> A neat list!</p>
+<p>A paragraph with some **bold** content and some *italic* content and ***both***.</p>
+<p>---</p>
+<p>    Some code content</p>
+<p>    As demonstrated here</p>
+</body>
 </html>
